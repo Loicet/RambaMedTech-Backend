@@ -1,0 +1,200 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  USER
+  CAREGIVER
+  ADMIN
+}
+
+enum EmotionLevel {
+  GREAT
+  GOOD
+  OKAY
+  LOW
+  BAD
+}
+
+model User {
+  id            String    @id @default(uuid())
+  name          String
+  email         String    @unique
+  passwordHash  String
+  role          Role      @default(USER)
+  createdAt     DateTime  @default(now())
+
+  conditions        UserCondition[]
+  healthLogs        HealthLog[]
+  emotionalCheckIns EmotionalCheckIn[]
+  caregiverAccess   CaregiverAccess[]  @relation("CaregiverAccess")
+  grantedAccess     CaregiverAccess[]  @relation("PatientAccess")
+  memberships       CommunityMember[]
+  notifications     Notification[]
+  contentProgress   ContentProgress[]
+  careInvites       CareInvite[]
+  consent           PatientConsent?
+}
+
+model Condition {
+  id          String  @id @default(uuid())
+  name        String  @unique
+  description String?
+
+  users    UserCondition[]
+  content  EducationalContent[]
+  logs     HealthLog[]
+}
+
+model UserCondition {
+  userId      String
+  conditionId String
+  assignedAt  DateTime @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  condition Condition @relation(fields: [conditionId], references: [id], onDelete: Cascade)
+
+  @@id([userId, conditionId])
+}
+
+model HealthLog {
+  id          String    @id @default(uuid())
+  userId      String
+  conditionId String
+  metric      String
+  value       String
+  unit        String?
+  notes       String?
+  loggedAt    DateTime  @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  condition Condition @relation(fields: [conditionId], references: [id], onDelete: Cascade)
+}
+
+model EmotionalCheckIn {
+  id        String       @id @default(uuid())
+  userId    String
+  emotion   EmotionLevel
+  notes     String?
+  checkedAt DateTime     @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CaregiverAccess {
+  id          String   @id @default(uuid())
+  caregiverId String
+  patientId   String
+  grantedAt   DateTime @default(now())
+
+  caregiver User @relation("CaregiverAccess", fields: [caregiverId], references: [id], onDelete: Cascade)
+  patient   User @relation("PatientAccess", fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@unique([caregiverId, patientId])
+}
+
+model Community {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+
+  members CommunityMember[]
+  posts   CommunityPost[]
+}
+
+model CommunityMember {
+  userId      String
+  communityId String
+  joinedAt    DateTime @default(now())
+  streak      Int      @default(0)
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  community Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+
+  @@id([userId, communityId])
+}
+
+model CommunityPost {
+  id          String   @id @default(uuid())
+  communityId String
+  authorId    String
+  content     String
+  createdAt   DateTime @default(now())
+
+  community Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+}
+
+model EducationalContent {
+  id          String   @id @default(uuid())
+  conditionId String
+  title       String
+  body        String
+  createdAt   DateTime @default(now())
+
+  condition Condition         @relation(fields: [conditionId], references: [id], onDelete: Cascade)
+  progress  ContentProgress[]
+}
+
+model ContentProgress {
+  userId    String
+  contentId String
+  readAt    DateTime @default(now())
+
+  user    User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content EducationalContent @relation(fields: [contentId], references: [id], onDelete: Cascade)
+
+  @@id([userId, contentId])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String
+  message   String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Temporary OTP store for registration verification
+model OtpRequest {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  otp       String
+  name      String
+  password  String   // hashed
+  role      Role     @default(USER)
+  condition String?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+// Invite codes sent by patients to caregivers
+model CareInvite {
+  id             String   @id @default(uuid())
+  code           String   @unique
+  patientId      String
+  caregiverEmail String
+  status         String   @default("pending") // pending | accepted | revoked
+  createdAt      DateTime @default(now())
+
+  patient User @relation(fields: [patientId], references: [id], onDelete: Cascade)
+}
+
+// Per-patient consent settings visible to their caregiver
+model PatientConsent {
+  patientId String  @id
+  vitals    Boolean @default(true)
+  mood      Boolean @default(true)
+  symptoms  Boolean @default(true)
+  insights  Boolean @default(true)
+  reminders Boolean @default(true)
+
+  patient User @relation(fields: [patientId], references: [id], onDelete: Cascade)
+}
