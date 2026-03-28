@@ -14,7 +14,23 @@ const consentRoutes = require("./routes/consent");
 const adminRoutes = require("./routes/admin");
 
 const app = express();
-app.use(cors({ origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:4173', 'https://ramba-med-tech.vercel.app', 'https://ramba-med-tech-mj8ozxfho-loice-tetas-projects.vercel.app'], credentials: true }));
+app.use(cors({
+  origin: function(origin, callback) {
+    const allowed = [
+      'http://localhost:5173',
+      'http://localhost:5174',
+      'http://localhost:4173',
+      'https://ramba-med-tech.vercel.app',
+      'https://ramba-med-tech-mj8ozxfho-loice-tetas-projects.vercel.app',
+    ];
+    if (!origin || allowed.includes(origin) || origin.endsWith('.vercel.app')) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true
+}));
 app.use(express.json());
 
 app.use("/api/auth", authRoutes);
