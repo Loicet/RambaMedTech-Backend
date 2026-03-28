@@ -24,8 +24,8 @@
   },
   "homepage": "https://github.com/ingdia/RambaMed_backend#readme",
   "dependencies": {
-    "@prisma/adapter-pg": "^7.5.0",
-    "@prisma/client": "^7.5.0",
+    "@prisma/adapter-pg": "^5.22.0",
+    "@prisma/client": "^5.22.0",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
@@ -38,6 +38,6 @@
     "@types/bcryptjs": "^2.4.6",
     "@types/jsonwebtoken": "^9.0.10",
     "nodemon": "^3.1.14",
-    "prisma": "^7.5.0"
+    "prisma": "^5.22.0"
   }
 }
