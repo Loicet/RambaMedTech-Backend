@@ -27,6 +27,7 @@ model User {
   email         String    @unique
   passwordHash  String
   role          Role      @default(USER)
+  lang          String    @default("en")
   createdAt     DateTime  @default(now())
 
   conditions        UserCondition[]
@@ -172,6 +173,7 @@ model OtpRequest {
   password  String   // hashed
   role      Role     @default(USER)
   condition String?
+  lang      String   @default("en")
   expiresAt DateTime
   createdAt DateTime @default(now())
 }
