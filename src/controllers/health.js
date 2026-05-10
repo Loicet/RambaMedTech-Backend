@@ -1,4 +1,5 @@
 const prisma = require("../lib/prisma");
+const { sendCaregiverHealthAlert } = require('../lib/email');
 
 const METRIC_CONDITION_MAP = {
   "Blood Sugar": "Diabetes",
@@ -33,7 +34,25 @@ async function createLog(req, res) {
     const log = await prisma.healthLog.create({
       data: { userId: req.user.id, conditionId, metric, value, unit, notes },
     });
+
     res.status(201).json({ log });
+
+    // Notify caregivers in background
+    prisma.caregiverAccess.findMany({
+      where: { patientId: req.user.id },
+      include: {
+        caregiver: { select: { name: true, email: true } },
+        patient: { select: { name: true } },
+      },
+    }).then((accesses) => {
+      if (accesses.length === 0) return;
+      const patientName = accesses[0].patient.name;
+      accesses.forEach(({ caregiver }) => {
+        sendCaregiverHealthAlert(caregiver.email, caregiver.name, patientName, metric, value, unit, notes)
+          .catch((e) => console.error('Caregiver health alert failed:', e.message));
+      });
+    }).catch(() => {});
+
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to create health log" });

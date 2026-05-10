@@ -1,7 +1,8 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
 const prisma = require("../lib/prisma");
-const { sendOtpEmail } = require("../lib/email");
+const { sendOtpEmail, sendPasswordResetEmail } = require("../lib/email");
 
 const ROLE_MAP = { patient: "USER", caregiver: "CAREGIVER", admin: "ADMIN" };
 
@@ -12,11 +13,16 @@ async function register(req, res) {
     if (!name || !email || !password)
       return res.status(400).json({ error: "name, email and password are required" });
 
-    const existing = await prisma.user.findUnique({ where: { email } });
+    const dbRole = ROLE_MAP[role] || "USER";
+
+    // Run DB check and password hash in parallel to save time
+    const [existing, passwordHash] = await Promise.all([
+      prisma.user.findUnique({ where: { email } }),
+      bcrypt.hash(password, 10),
+    ]);
+
     if (existing) return res.status(409).json({ error: "Email already in use" });
 
-    const dbRole = ROLE_MAP[role] || "USER";
-    const passwordHash = await bcrypt.hash(password, 10);
     const otp = String(Math.floor(100000 + Math.random() * 900000));
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 min
 
@@ -26,15 +32,12 @@ async function register(req, res) {
       update: { otp, name, password: passwordHash, role: dbRole, condition: condition || null, expiresAt },
     });
 
-    // Send OTP via email
-    try {
-      await sendOtpEmail(email, otp, name);
-    } catch (emailErr) {
-      console.error('Email send failed:', emailErr.message);
-      // Still return success but include otp as fallback for demo
-      return res.status(200).json({ success: true, otp, emailFailed: true });
-    }
+    // Respond immediately — send email in background so user isn't waiting on Gmail
     res.status(200).json({ success: true });
+
+    sendOtpEmail(email, otp, name).catch((emailErr) =>
+      console.error('OTP email failed:', emailErr.message)
+    );
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Registration failed" });
@@ -89,14 +92,12 @@ async function resendOtp(req, res) {
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
     await prisma.otpRequest.update({ where: { email }, data: { otp, expiresAt } });
 
-    try {
-      const pending2 = await prisma.otpRequest.findUnique({ where: { email } });
-      if (pending2) await sendOtpEmail(email, otp, pending2.name);
-    } catch (emailErr) {
-      console.error('Email send failed:', emailErr.message);
-      return res.json({ success: true, otp, emailFailed: true });
-    }
     res.json({ success: true });
+
+    // Send email in background
+    prisma.otpRequest.findUnique({ where: { email } }).then((pending2) => {
+      if (pending2) sendOtpEmail(email, otp, pending2.name).catch((e) => console.error('Resend email failed:', e.message));
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to resend OTP" });
@@ -149,4 +150,56 @@ async function me(req, res) {
   }
 }
 
-module.exports = { register, verifyOtp, resendOtp, login, me };
+async function forgotPassword(req, res) {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'email is required' });
+
+    
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) return;
+    
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 min
+    
+    await prisma.passwordReset.upsert({
+      where: { email },
+      create: { email, token, expiresAt },
+      update: { token, expiresAt },
+    });
+    
+    const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${token}`;
+    sendPasswordResetEmail(email, user.name, resetLink).catch((e) =>
+      console.error('Password reset email failed:', e.message)
+  );
+  // Always respond success to prevent email enumeration
+  return res.json({ success: true, message: 'If that email exists, a reset link has been sent.' });
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function resetPassword(req, res) {
+  try {
+    const { token, password } = req.body;
+    if (!token || !password) return res.status(400).json({ error: 'token and password are required' });
+
+    const record = await prisma.passwordReset.findUnique({ where: { token } });
+    if (!record) return res.status(400).json({ error: 'Invalid or expired reset link.' });
+    if (new Date() > record.expiresAt) {
+      await prisma.passwordReset.delete({ where: { token } });
+      return res.status(400).json({ error: 'Reset link has expired. Please request a new one.' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    await prisma.user.update({ where: { email: record.email }, data: { passwordHash } });
+    await prisma.passwordReset.delete({ where: { token } });
+
+    res.json({ success: true, message: 'Password reset successfully. You can now log in.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to reset password' });
+  }
+}
+
+module.exports = { register, verifyOtp, resendOtp, login, me, forgotPassword, resetPassword };

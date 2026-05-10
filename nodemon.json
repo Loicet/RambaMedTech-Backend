@@ -1,0 +1,6 @@
+{
+  "watch": ["src"],
+  "ext": "js,json",
+  "ignore": ["prisma/*", "node_modules/*", "*.ts"],
+  "exec": "node src/app.js"
+}
