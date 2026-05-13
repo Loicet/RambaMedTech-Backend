@@ -8,19 +8,17 @@ datasource db {
 }
 
 model User {
-  id                String             @id @default(uuid())
-  name              String
-  email             String             @unique
-  passwordHash      String
-  role              Role               @default(USER)
-  createdAt         DateTime           @default(now())
-  lang              String             @default("en")
-  birthYear         Int?
-  gender            String?
-  height            Float?
-  weight            Float?
-  careInvites       CareInvite[]
-  reminders         Reminder[]
+  id            String    @id @default(uuid())
+  name          String
+  email         String    @unique
+  passwordHash  String
+  role          Role      @default(USER)
+  lang          String    @default("en")
+  createdAt     DateTime  @default(now())
+
+  conditions        UserCondition[]
+  healthLogs        HealthLog[]
+  emotionalCheckIns EmotionalCheckIn[]
   caregiverAccess   CaregiverAccess[]  @relation("CaregiverAccess")
   grantedAccess     CaregiverAccess[]  @relation("PatientAccess")
   memberships       CommunityMember[]
@@ -176,6 +174,7 @@ model OtpRequest {
   password  String
   role      Role     @default(USER)
   condition String?
+  lang      String   @default("en")
   expiresAt DateTime
   createdAt DateTime @default(now())
   lang      String   @default("en")
