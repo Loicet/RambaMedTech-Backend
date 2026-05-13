@@ -7,20 +7,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum Role {
-  USER
-  CAREGIVER
-  ADMIN
-}
-
-enum EmotionLevel {
-  GREAT
-  GOOD
-  OKAY
-  LOW
-  BAD
-}
-
 model User {
   id            String    @id @default(uuid())
   name          String
@@ -36,29 +22,31 @@ model User {
   caregiverAccess   CaregiverAccess[]  @relation("CaregiverAccess")
   grantedAccess     CaregiverAccess[]  @relation("PatientAccess")
   memberships       CommunityMember[]
-  notifications     Notification[]
   contentProgress   ContentProgress[]
-  careInvites       CareInvite[]
+  emotionalCheckIns EmotionalCheckIn[]
+  healthLogs        HealthLog[]
+  notifications     Notification[]
   consent           PatientConsent?
+  conditions        UserCondition[]
+  pushSubscriptions PushSubscription[]
+  auditLogs         AuditLog[]
 }
 
 model Condition {
-  id          String  @id @default(uuid())
-  name        String  @unique
+  id          String               @id @default(uuid())
+  name        String               @unique
   description String?
-
-  users    UserCondition[]
-  content  EducationalContent[]
-  logs     HealthLog[]
+  content     EducationalContent[]
+  logs        HealthLog[]
+  users       UserCondition[]
 }
 
 model UserCondition {
   userId      String
   conditionId String
-  assignedAt  DateTime @default(now())
-
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  condition Condition @relation(fields: [conditionId], references: [id], onDelete: Cascade)
+  assignedAt  DateTime  @default(now())
+  condition   Condition @relation(fields: [conditionId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([userId, conditionId])
 }
@@ -72,9 +60,8 @@ model HealthLog {
   unit        String?
   notes       String?
   loggedAt    DateTime  @default(now())
-
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  condition Condition @relation(fields: [conditionId], references: [id], onDelete: Cascade)
+  condition   Condition @relation(fields: [conditionId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model EmotionalCheckIn {
@@ -83,8 +70,7 @@ model EmotionalCheckIn {
   emotion   EmotionLevel
   notes     String?
   checkedAt DateTime     @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model CaregiverAccess {
@@ -92,63 +78,80 @@ model CaregiverAccess {
   caregiverId String
   patientId   String
   grantedAt   DateTime @default(now())
-
-  caregiver User @relation("CaregiverAccess", fields: [caregiverId], references: [id], onDelete: Cascade)
-  patient   User @relation("PatientAccess", fields: [patientId], references: [id], onDelete: Cascade)
+  caregiver   User     @relation("CaregiverAccess", fields: [caregiverId], references: [id], onDelete: Cascade)
+  patient     User     @relation("PatientAccess", fields: [patientId], references: [id], onDelete: Cascade)
 
   @@unique([caregiverId, patientId])
 }
 
 model Community {
-  id          String   @id @default(uuid())
-  name        String   @unique
-  description String?
-  createdAt   DateTime @default(now())
-
-  members CommunityMember[]
-  posts   CommunityPost[]
+  id            String            @id @default(uuid())
+  name          String            @unique
+  description   String?
+  conditionName String?           // links community to a condition
+  createdAt     DateTime          @default(now())
+  members       CommunityMember[]
+  posts         CommunityPost[]
 }
 
 model CommunityMember {
   userId      String
   communityId String
-  joinedAt    DateTime @default(now())
-  streak      Int      @default(0)
-
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  community Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  joinedAt    DateTime  @default(now())
+  streak      Int       @default(0)
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([userId, communityId])
 }
 
 model CommunityPost {
-  id          String   @id @default(uuid())
+  id          String        @id @default(uuid())
   communityId String
   authorId    String
   content     String
-  createdAt   DateTime @default(now())
+  edited      Boolean       @default(false)
+  createdAt   DateTime      @default(now())
+  community   Community     @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  likes       PostLike[]
+  comments    PostComment[]
+}
 
-  community Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+model PostLike {
+  id        String   @id @default(uuid())
+  postId    String
+  userId    String
+  createdAt DateTime @default(now())
+  post      CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, userId])
+}
+
+model PostComment {
+  id        String   @id @default(uuid())
+  postId    String
+  authorId  String
+  content   String
+  createdAt DateTime @default(now())
+  post      CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade)
 }
 
 model EducationalContent {
-  id          String   @id @default(uuid())
+  id          String            @id @default(uuid())
   conditionId String
   title       String
   body        String
-  createdAt   DateTime @default(now())
-
-  condition Condition         @relation(fields: [conditionId], references: [id], onDelete: Cascade)
-  progress  ContentProgress[]
+  createdAt   DateTime          @default(now())
+  progress    ContentProgress[]
+  condition   Condition         @relation(fields: [conditionId], references: [id], onDelete: Cascade)
 }
 
 model ContentProgress {
   userId    String
   contentId String
-  readAt    DateTime @default(now())
-
-  user    User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  content EducationalContent @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  readAt    DateTime           @default(now())
+  content   EducationalContent @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([userId, contentId])
 }
@@ -160,37 +163,33 @@ model Notification {
   message   String
   isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-// Temporary OTP store for registration verification
 model OtpRequest {
   id        String   @id @default(uuid())
   email     String   @unique
   otp       String
   name      String
-  password  String   // hashed
+  password  String
   role      Role     @default(USER)
   condition String?
   lang      String   @default("en")
   expiresAt DateTime
   createdAt DateTime @default(now())
+  lang      String   @default("en")
 }
 
-// Invite codes sent by patients to caregivers
 model CareInvite {
   id             String   @id @default(uuid())
   code           String   @unique
   patientId      String
   caregiverEmail String
-  status         String   @default("pending") // pending | accepted | revoked
+  status         String   @default("pending")
   createdAt      DateTime @default(now())
-
-  patient User @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  patient        User     @relation(fields: [patientId], references: [id], onDelete: Cascade)
 }
 
-// Per-patient consent settings visible to their caregiver
 model PatientConsent {
   patientId String  @id
   vitals    Boolean @default(true)
@@ -198,6 +197,65 @@ model PatientConsent {
   symptoms  Boolean @default(true)
   insights  Boolean @default(true)
   reminders Boolean @default(true)
+  patient   User    @relation(fields: [patientId], references: [id], onDelete: Cascade)
+}
 
-  patient User @relation(fields: [patientId], references: [id], onDelete: Cascade)
+model Reminder {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String
+  time      String
+  type      String   @default("general")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PushSubscription {
+  id           String   @id @default(uuid())
+  userId       String
+  endpoint     String
+  p256dh       String
+  auth         String
+  createdAt    DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, endpoint])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String
+  details   String?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model PasswordReset {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+enum Role {
+  USER
+  CAREGIVER
+  ADMIN
+}
+
+enum EmotionLevel {
+  GREAT
+  GOOD
+  OKAY
+  LOW
+  BAD
 }

@@ -1,4 +1,6 @@
 const prisma = require("../lib/prisma");
+const { sendCaregiverHealthAlert } = require('../lib/email');
+const { encrypt, decrypt } = require('../lib/encryption');
 
 const METRIC_CONDITION_MAP = {
   "Blood Sugar": "Diabetes",
@@ -31,9 +33,27 @@ async function createLog(req, res) {
       return res.status(400).json({ error: "conditionId is required or could not be resolved from metric type" });
 
     const log = await prisma.healthLog.create({
-      data: { userId: req.user.id, conditionId, metric, value, unit, notes },
+      data: { userId: req.user.id, conditionId, metric, value, unit, notes: encrypt(notes) },
     });
-    res.status(201).json({ log });
+
+    res.status(201).json({ log: { ...log, notes: decrypt(log.notes) } });
+
+    // Notify caregivers in background
+    prisma.caregiverAccess.findMany({
+      where: { patientId: req.user.id },
+      include: {
+        caregiver: { select: { name: true, email: true, lang: true } },
+        patient: { select: { name: true } },
+      },
+    }).then((accesses) => {
+      if (accesses.length === 0) return;
+      const patientName = accesses[0].patient.name;
+      accesses.forEach(({ caregiver }) => {
+        sendCaregiverHealthAlert(caregiver.email, caregiver.name, patientName, metric, value, unit, notes, caregiver.lang || 'en')
+          .catch((e) => console.error('Caregiver health alert failed:', e.message));
+      });
+    }).catch(() => {});
+
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to create health log" });
@@ -48,7 +68,7 @@ async function getLogs(req, res) {
       orderBy: { loggedAt: "desc" },
       include: { condition: { select: { name: true } } },
     });
-    res.json({ logs });
+    res.json({ logs: logs.map(l => ({ ...l, notes: decrypt(l.notes) })) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to fetch health logs" });

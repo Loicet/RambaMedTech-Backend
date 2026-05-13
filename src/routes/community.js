@@ -8,6 +8,11 @@ const {
   incrementStreak,
   createPost,
   getPosts,
+  editPost,
+  deletePost,
+  toggleLike,
+  getComments,
+  addComment,
   grantCaregiverAccess,
   revokeCaregiverAccess,
   getPatientSummary,
@@ -30,5 +35,12 @@ router.post("/:id/streak", authenticate, incrementStreak);
 // Posts
 router.post("/:id/posts", authenticate, createPost);
 router.get("/:id/posts", authenticate, getPosts);
+router.patch("/posts/:postId", authenticate, editPost);
+router.delete("/posts/:postId", authenticate, deletePost);
+
+// Likes & Comments
+router.post("/posts/:postId/like", authenticate, toggleLike);
+router.get("/posts/:postId/comments", authenticate, getComments);
+router.post("/posts/:postId/comments", authenticate, addComment);
 
 module.exports = router;

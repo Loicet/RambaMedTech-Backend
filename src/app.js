@@ -1,6 +1,9 @@
-require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
+const { startMissedLogChecker } = require('./lib/missedLogChecker');
+
+// keep process alive
+process.stdin.resume();
 
 const authRoutes = require("./routes/auth");
 const healthRoutes = require("./routes/health");
@@ -12,6 +15,9 @@ const conditionRoutes = require("./routes/condition");
 const inviteRoutes = require("./routes/invite");
 const consentRoutes = require("./routes/consent");
 const adminRoutes = require("./routes/admin");
+const reminderRoutes = require("./routes/reminder");
+const pushRoutes = require("./routes/push");
+const { startReminderScheduler } = require("./lib/scheduler");
 
 const app = express();
 app.use(cors({
@@ -43,8 +49,10 @@ app.use("/api/conditions", conditionRoutes);
 app.use("/api/invites", inviteRoutes);
 app.use("/api/consent", consentRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/reminders", reminderRoutes);
+app.use("/api/push", pushRoutes);
 
-app.get("/", (req, res) => res.json({ message: "RambaMedTech API running" }));
+app.get("/", (req, res) => res.json({ message: "RambaMedTech API running -----" }));
 
 // Global error handler
 app.use((err, req, res, next) => {
@@ -53,4 +61,8 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  startReminderScheduler();
+  startMissedLogChecker();
+});

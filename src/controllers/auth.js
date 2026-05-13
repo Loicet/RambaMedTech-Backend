@@ -1,7 +1,9 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
 const prisma = require("../lib/prisma");
-const { sendOtpEmail } = require("../lib/email");
+const { sendOtpEmail, sendPasswordResetEmail } = require("../lib/email");
+const { audit } = require("../lib/audit");
 
 const ROLE_MAP = { patient: "USER", caregiver: "CAREGIVER", admin: "ADMIN" };
 
@@ -12,7 +14,14 @@ async function register(req, res) {
     if (!name || !email || !password)
       return res.status(400).json({ error: "name, email and password are required" });
 
-    const existing = await prisma.user.findUnique({ where: { email } });
+    const dbRole = ROLE_MAP[role] || "USER";
+
+    // Run DB check and password hash in parallel to save time
+    const [existing, passwordHash] = await Promise.all([
+      prisma.user.findUnique({ where: { email } }),
+      bcrypt.hash(password, 8),
+    ]);
+
     if (existing) return res.status(409).json({ error: "Email already in use" });
 
     const dbRole = ROLE_MAP[role] || "USER";
@@ -21,21 +30,20 @@ async function register(req, res) {
     const otp = String(Math.floor(100000 + Math.random() * 900000));
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 min
 
+    const lang = req.body.lang || 'en';
+
     await prisma.otpRequest.upsert({
       where: { email },
       create: { email, otp, name, password: passwordHash, role: dbRole, condition: condition || null, lang: dbLang, expiresAt },
       update: { otp, name, password: passwordHash, role: dbRole, condition: condition || null, lang: dbLang, expiresAt },
     });
 
-    // Send OTP via email
-    try {
-      await sendOtpEmail(email, otp, name);
-    } catch (emailErr) {
-      console.error('Email send failed:', emailErr.message);
-      // Still return success but include otp as fallback for demo
-      return res.status(200).json({ success: true, otp, emailFailed: true });
-    }
+    // Respond immediately — send email in background so user isn't waiting on Gmail
     res.status(200).json({ success: true });
+
+    sendOtpEmail(email, otp, name, lang).catch((emailErr) =>
+      console.error('OTP email failed:', emailErr.message)
+    );
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Registration failed" });
@@ -61,9 +69,18 @@ async function verifyOtp(req, res) {
       select: { id: true, name: true, email: true, role: true, lang: true, createdAt: true },
     });
 
+    // Assign condition and auto-join matching community
     if (pending.condition) {
       const found = await prisma.condition.findFirst({ where: { name: pending.condition } });
-      if (found) await prisma.userCondition.create({ data: { userId: user.id, conditionId: found.id } });
+      if (found) {
+        await prisma.userCondition.create({ data: { userId: user.id, conditionId: found.id } });
+
+        // Auto-join the community that matches this condition
+        const community = await prisma.community.findFirst({ where: { conditionName: pending.condition } });
+        if (community) {
+          await prisma.communityMember.create({ data: { userId: user.id, communityId: community.id } }).catch(() => {});
+        }
+      }
     }
 
     await prisma.otpRequest.delete({ where: { email } });
@@ -90,14 +107,12 @@ async function resendOtp(req, res) {
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
     await prisma.otpRequest.update({ where: { email }, data: { otp, expiresAt } });
 
-    try {
-      const pending2 = await prisma.otpRequest.findUnique({ where: { email } });
-      if (pending2) await sendOtpEmail(email, otp, pending2.name);
-    } catch (emailErr) {
-      console.error('Email send failed:', emailErr.message);
-      return res.json({ success: true, otp, emailFailed: true });
-    }
     res.json({ success: true });
+
+    // Send email in background
+    prisma.otpRequest.findUnique({ where: { email } }).then((pending2) => {
+      if (pending2) sendOtpEmail(email, otp, pending2.name, pending2.lang || 'en').catch((e) => console.error('Resend email failed:', e.message));
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to resend OTP" });
@@ -111,10 +126,16 @@ async function login(req, res) {
       return res.status(400).json({ error: "email and password are required" });
 
     const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) return res.status(401).json({ error: "Invalid credentials" });
+    if (!user) {
+      await audit('LOGIN_FAILED', { details: `Failed login attempt for email: ${email}`, req });
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
 
     const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) return res.status(401).json({ error: "Invalid credentials" });
+    if (!valid) {
+      await audit('LOGIN_FAILED', { userId: user.id, details: 'Incorrect password', req });
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
 
     const token = jwt.sign(
       { id: user.id, role: user.role },
@@ -150,4 +171,85 @@ async function me(req, res) {
   }
 }
 
-module.exports = { register, verifyOtp, resendOtp, login, me };
+async function updateProfile(req, res) {
+  try {
+    const { name, birthYear, gender, height, weight } = req.body;
+    const data = {};
+    if (name)       data.name      = name;
+    if (birthYear)  data.birthYear = parseInt(birthYear);
+    if (gender !== undefined) data.gender = gender;
+    if (height)     data.height    = parseFloat(height);
+    if (weight)     data.weight    = parseFloat(weight);
+
+    const user = await prisma.user.update({
+      where: { id: req.user.id },
+      data,
+      select: {
+        id: true, name: true, email: true, role: true,
+        birthYear: true, gender: true, height: true, weight: true,
+        conditions: { include: { condition: { select: { name: true } } } },
+      },
+    });
+
+    const roleDisplay = user.role === "USER" ? "patient" : user.role.toLowerCase();
+    const condition = user.conditions[0]?.condition?.name || null;
+    res.json({ user: { ...user, role: roleDisplay, condition, conditions: undefined } });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to update profile" });
+  }
+}
+
+async function forgotPassword(req, res) {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'email is required' });
+
+    
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) return;
+    
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 min
+    
+    await prisma.passwordReset.upsert({
+      where: { email },
+      create: { email, token, expiresAt },
+      update: { token, expiresAt },
+    });
+    
+    const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${token}`;
+    sendPasswordResetEmail(email, user.name, resetLink, user.lang || 'en').catch((e) =>
+      console.error('Password reset email failed:', e.message)
+  );
+  // Always respond success to prevent email enumeration
+  return res.json({ success: true, message: 'If that email exists, a reset link has been sent.' });
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function resetPassword(req, res) {
+  try {
+    const { token, password } = req.body;
+    if (!token || !password) return res.status(400).json({ error: 'token and password are required' });
+
+    const record = await prisma.passwordReset.findUnique({ where: { token } });
+    if (!record) return res.status(400).json({ error: 'Invalid or expired reset link.' });
+    if (new Date() > record.expiresAt) {
+      await prisma.passwordReset.delete({ where: { token } });
+      return res.status(400).json({ error: 'Reset link has expired. Please request a new one.' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    await prisma.user.update({ where: { email: record.email }, data: { passwordHash } });
+    await prisma.passwordReset.delete({ where: { token } });
+
+    res.json({ success: true, message: 'Password reset successfully. You can now log in.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to reset password' });
+  }
+}
+
+module.exports = { register, verifyOtp, resendOtp, login, me, updateProfile, forgotPassword, resetPassword };
