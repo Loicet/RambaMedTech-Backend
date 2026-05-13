@@ -1,4 +1,5 @@
 const prisma = require("../lib/prisma");
+const { sendCaregiverInviteEmail } = require('../lib/email');
 
 const generateCode = () =>
   "RAMBA-" + Math.random().toString(36).toUpperCase().slice(2, 7);
@@ -18,7 +19,30 @@ async function sendInvite(req, res) {
     const invite = await prisma.careInvite.create({
       data: { code, patientId: req.user.id, caregiverEmail },
     });
+
     res.status(201).json({ success: true, code: invite.code });
+
+    // Send email + in-app notification in background
+    const patient = await prisma.user.findUnique({ where: { id: req.user.id }, select: { name: true } });
+    const patientName = patient?.name || 'Your patient';
+
+    // Email the caregiver
+    sendCaregiverInviteEmail(caregiverEmail, patientName, code)
+      .catch(e => console.error('Invite email failed:', e.message));
+
+    // In-app notification if caregiver already has an account
+    prisma.user.findUnique({ where: { email: caregiverEmail } }).then(caregiver => {
+      if (caregiver) {
+        prisma.notification.create({
+          data: {
+            userId: caregiver.id,
+            title: 'New Patient Assignment',
+            message: `${patientName} has assigned you as their caregiver. Use code ${code} to accept.`,
+          },
+        }).catch(() => {});
+      }
+    }).catch(() => {});
+
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to send invite" });
@@ -49,6 +73,16 @@ async function redeemInvite(req, res) {
       where: { id: invite.patientId },
       select: { id: true, name: true, email: true },
     });
+
+    // Notify patient that caregiver accepted
+    const caregiver = await prisma.user.findUnique({ where: { id: req.user.id }, select: { name: true } });
+    prisma.notification.create({
+      data: {
+        userId: invite.patientId,
+        title: 'Caregiver Accepted',
+        message: `${caregiver?.name || 'Your caregiver'} has accepted your caregiver invitation and is now monitoring your health.`,
+      },
+    }).catch(() => {});
 
     res.json({ success: true, invite: { ...invite, patientName: patient.name, patientEmail: patient.email } });
   } catch (err) {

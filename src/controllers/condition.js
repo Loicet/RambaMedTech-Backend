@@ -27,13 +27,26 @@ async function addUserCondition(req, res) {
     const { conditionId } = req.body;
     if (!conditionId) return res.status(400).json({ error: "conditionId is required" });
 
-    const exists = await prisma.userCondition.findUnique({
-      where: { userId_conditionId: { userId: req.user.id, conditionId } },
-    });
-    if (exists) return res.status(409).json({ error: "Condition already added" });
+    const condition = await prisma.condition.findUnique({ where: { id: conditionId } });
+    if (!condition) return res.status(404).json({ error: "Condition not found" });
 
-    await prisma.userCondition.create({ data: { userId: req.user.id, conditionId } });
-    res.status(201).json({ message: "Condition added" });
+    await prisma.userCondition.upsert({
+      where: { userId_conditionId: { userId: req.user.id, conditionId } },
+      create: { userId: req.user.id, conditionId },
+      update: {},
+    });
+
+    // Auto-join the matching community
+    const community = await prisma.community.findFirst({ where: { conditionName: condition.name } });
+    if (community) {
+      await prisma.communityMember.upsert({
+        where: { userId_communityId: { userId: req.user.id, communityId: community.id } },
+        create: { userId: req.user.id, communityId: community.id },
+        update: {},
+      });
+    }
+
+    res.status(201).json({ message: "Condition added", condition, community: community || null });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to add condition" });

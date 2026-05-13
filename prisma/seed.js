@@ -62,16 +62,19 @@ async function main() {
   }
   console.log("Seeded", ARTICLES.length, "educational articles");
 
-  // Seed default communities
+  // Seed default communities — linked to conditions
   const COMMUNITIES = [
-    { name: "Diabetes Warriors", description: "Support group for people managing diabetes." },
-    { name: "BP Buddies", description: "Community for hypertension management." },
-    { name: "Asthma Support", description: "Breathing easier together." },
-    { name: "Heart Health", description: "Cardiovascular wellness community." },
+    { name: "Diabetes Warriors", description: "Support group for people managing diabetes.", conditionName: "Diabetes" },
+    { name: "BP Buddies", description: "Community for hypertension management.", conditionName: "Hypertension" },
+    { name: "Asthma Support", description: "Breathing easier together.", conditionName: "Asthma" },
+    { name: "Heart Health", description: "Cardiovascular wellness community.", conditionName: "Cardiovascular Disease" },
+    { name: "Kidney Warriors", description: "Support for chronic kidney disease.", conditionName: "Chronic Kidney Disease" },
+    { name: "Sickle Cell Circle", description: "Living well with sickle cell.", conditionName: "Sickle Cell" },
   ];
   for (const c of COMMUNITIES) {
     const exists = await prisma.community.findFirst({ where: { name: c.name } });
     if (!exists) await prisma.community.create({ data: c });
+    else await prisma.community.update({ where: { id: exists.id }, data: { conditionName: c.conditionName } });
   }
   console.log("Seeded communities:", COMMUNITIES.map((c) => c.name).join(", "));
 

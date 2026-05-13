@@ -3,6 +3,7 @@ const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const prisma = require("../lib/prisma");
 const { sendOtpEmail, sendPasswordResetEmail } = require("../lib/email");
+const { audit } = require("../lib/audit");
 
 const ROLE_MAP = { patient: "USER", caregiver: "CAREGIVER", admin: "ADMIN" };
 
@@ -18,7 +19,7 @@ async function register(req, res) {
     // Run DB check and password hash in parallel to save time
     const [existing, passwordHash] = await Promise.all([
       prisma.user.findUnique({ where: { email } }),
-      bcrypt.hash(password, 10),
+      bcrypt.hash(password, 8),
     ]);
 
     if (existing) return res.status(409).json({ error: "Email already in use" });
@@ -26,16 +27,18 @@ async function register(req, res) {
     const otp = String(Math.floor(100000 + Math.random() * 900000));
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 min
 
+    const lang = req.body.lang || 'en';
+
     await prisma.otpRequest.upsert({
       where: { email },
-      create: { email, otp, name, password: passwordHash, role: dbRole, condition: condition || null, expiresAt },
-      update: { otp, name, password: passwordHash, role: dbRole, condition: condition || null, expiresAt },
+      create: { email, otp, name, password: passwordHash, role: dbRole, condition: condition || null, expiresAt, lang },
+      update: { otp, name, password: passwordHash, role: dbRole, condition: condition || null, expiresAt, lang },
     });
 
     // Respond immediately — send email in background so user isn't waiting on Gmail
     res.status(200).json({ success: true });
 
-    sendOtpEmail(email, otp, name).catch((emailErr) =>
+    sendOtpEmail(email, otp, name, lang).catch((emailErr) =>
       console.error('OTP email failed:', emailErr.message)
     );
   } catch (err) {
@@ -59,13 +62,22 @@ async function verifyOtp(req, res) {
     if (pending.otp !== otp) return res.status(400).json({ error: "Incorrect code. Please try again." });
 
     const user = await prisma.user.create({
-      data: { name: pending.name, email, passwordHash: pending.password, role: pending.role },
+      data: { name: pending.name, email, passwordHash: pending.password, role: pending.role, lang: pending.lang || 'en' },
       select: { id: true, name: true, email: true, role: true, createdAt: true },
     });
 
+    // Assign condition and auto-join matching community
     if (pending.condition) {
       const found = await prisma.condition.findFirst({ where: { name: pending.condition } });
-      if (found) await prisma.userCondition.create({ data: { userId: user.id, conditionId: found.id } });
+      if (found) {
+        await prisma.userCondition.create({ data: { userId: user.id, conditionId: found.id } });
+
+        // Auto-join the community that matches this condition
+        const community = await prisma.community.findFirst({ where: { conditionName: pending.condition } });
+        if (community) {
+          await prisma.communityMember.create({ data: { userId: user.id, communityId: community.id } }).catch(() => {});
+        }
+      }
     }
 
     await prisma.otpRequest.delete({ where: { email } });
@@ -96,7 +108,7 @@ async function resendOtp(req, res) {
 
     // Send email in background
     prisma.otpRequest.findUnique({ where: { email } }).then((pending2) => {
-      if (pending2) sendOtpEmail(email, otp, pending2.name).catch((e) => console.error('Resend email failed:', e.message));
+      if (pending2) sendOtpEmail(email, otp, pending2.name, pending2.lang || 'en').catch((e) => console.error('Resend email failed:', e.message));
     });
   } catch (err) {
     console.error(err);
@@ -111,10 +123,16 @@ async function login(req, res) {
       return res.status(400).json({ error: "email and password are required" });
 
     const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) return res.status(401).json({ error: "Invalid credentials" });
+    if (!user) {
+      await audit('LOGIN_FAILED', { details: `Failed login attempt for email: ${email}`, req });
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
 
     const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) return res.status(401).json({ error: "Invalid credentials" });
+    if (!valid) {
+      await audit('LOGIN_FAILED', { userId: user.id, details: 'Incorrect password', req });
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
 
     const token = jwt.sign(
       { id: user.id, role: user.role },
@@ -123,6 +141,7 @@ async function login(req, res) {
     );
 
     const roleDisplay = user.role === "USER" ? "patient" : user.role.toLowerCase();
+    await audit('LOGIN_SUCCESS', { userId: user.id, details: `Logged in as ${roleDisplay}`, req });
     res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: roleDisplay } });
   } catch (err) {
     console.error(err);
@@ -136,6 +155,7 @@ async function me(req, res) {
       where: { id: req.user.id },
       select: {
         id: true, name: true, email: true, role: true, createdAt: true,
+        lang: true, birthYear: true, gender: true, height: true, weight: true,
         conditions: { include: { condition: { select: { name: true } } } },
       },
     });
@@ -147,6 +167,35 @@ async function me(req, res) {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to fetch user" });
+  }
+}
+
+async function updateProfile(req, res) {
+  try {
+    const { name, birthYear, gender, height, weight } = req.body;
+    const data = {};
+    if (name)       data.name      = name;
+    if (birthYear)  data.birthYear = parseInt(birthYear);
+    if (gender !== undefined) data.gender = gender;
+    if (height)     data.height    = parseFloat(height);
+    if (weight)     data.weight    = parseFloat(weight);
+
+    const user = await prisma.user.update({
+      where: { id: req.user.id },
+      data,
+      select: {
+        id: true, name: true, email: true, role: true,
+        birthYear: true, gender: true, height: true, weight: true,
+        conditions: { include: { condition: { select: { name: true } } } },
+      },
+    });
+
+    const roleDisplay = user.role === "USER" ? "patient" : user.role.toLowerCase();
+    const condition = user.conditions[0]?.condition?.name || null;
+    res.json({ user: { ...user, role: roleDisplay, condition, conditions: undefined } });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to update profile" });
   }
 }
 
@@ -169,7 +218,7 @@ async function forgotPassword(req, res) {
     });
     
     const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${token}`;
-    sendPasswordResetEmail(email, user.name, resetLink).catch((e) =>
+    sendPasswordResetEmail(email, user.name, resetLink, user.lang || 'en').catch((e) =>
       console.error('Password reset email failed:', e.message)
   );
   // Always respond success to prevent email enumeration
@@ -202,4 +251,4 @@ async function resetPassword(req, res) {
   }
 }
 
-module.exports = { register, verifyOtp, resendOtp, login, me, forgotPassword, resetPassword };
+module.exports = { register, verifyOtp, resendOtp, login, me, updateProfile, forgotPassword, resetPassword };

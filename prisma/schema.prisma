@@ -15,6 +15,10 @@ model User {
   role              Role               @default(USER)
   createdAt         DateTime           @default(now())
   lang              String             @default("en")
+  birthYear         Int?
+  gender            String?
+  height            Float?
+  weight            Float?
   careInvites       CareInvite[]
   reminders         Reminder[]
   caregiverAccess   CaregiverAccess[]  @relation("CaregiverAccess")
@@ -26,6 +30,8 @@ model User {
   notifications     Notification[]
   consent           PatientConsent?
   conditions        UserCondition[]
+  pushSubscriptions PushSubscription[]
+  auditLogs         AuditLog[]
 }
 
 model Condition {
@@ -81,12 +87,13 @@ model CaregiverAccess {
 }
 
 model Community {
-  id          String            @id @default(uuid())
-  name        String            @unique
-  description String?
-  createdAt   DateTime          @default(now())
-  members     CommunityMember[]
-  posts       CommunityPost[]
+  id            String            @id @default(uuid())
+  name          String            @unique
+  description   String?
+  conditionName String?           // links community to a condition
+  createdAt     DateTime          @default(now())
+  members       CommunityMember[]
+  posts         CommunityPost[]
 }
 
 model CommunityMember {
@@ -101,12 +108,34 @@ model CommunityMember {
 }
 
 model CommunityPost {
-  id          String    @id @default(uuid())
+  id          String        @id @default(uuid())
   communityId String
   authorId    String
   content     String
-  createdAt   DateTime  @default(now())
-  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  edited      Boolean       @default(false)
+  createdAt   DateTime      @default(now())
+  community   Community     @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  likes       PostLike[]
+  comments    PostComment[]
+}
+
+model PostLike {
+  id        String   @id @default(uuid())
+  postId    String
+  userId    String
+  createdAt DateTime @default(now())
+  post      CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, userId])
+}
+
+model PostComment {
+  id        String   @id @default(uuid())
+  postId    String
+  authorId  String
+  content   String
+  createdAt DateTime @default(now())
+  post      CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade)
 }
 
 model EducationalContent {
@@ -181,6 +210,33 @@ model Reminder {
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PushSubscription {
+  id           String   @id @default(uuid())
+  userId       String
+  endpoint     String
+  p256dh       String
+  auth         String
+  createdAt    DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, endpoint])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String
+  details   String?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
 }
 
 model PasswordReset {
