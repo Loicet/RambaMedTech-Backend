@@ -1,24 +1,7 @@
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 
-// Direct SMTP is faster and more reliable than service:'gmail'
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 465,
-  secure: true,
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-  pool: true,        // reuse connections — much faster for multiple sends
-  maxConnections: 5,
-  socketTimeout: 10000,
-});
-
-// Verify connection on startup so you know immediately if credentials are wrong
-transporter.verify((err) => {
-  if (err) console.error('❌ Email transporter error:', err.message);
-  else console.log('✅ Email transporter ready');
-});
+const resend = new Resend(process.env.RESEND_API_KEY);
+const FROM = process.env.EMAIL_FROM || 'RambaMedTech <onboarding@resend.dev>';
 
 const i18n = {
   en: {
@@ -107,8 +90,8 @@ function baseHtml(tagline, content) {
 
 async function sendOtpEmail(toEmail, otp, name, lang = 'en') {
   const l = getLang(lang);
-  await transporter.sendMail({
-    from: `"RambaMedTech" <${process.env.EMAIL_USER}>`,
+  await resend.emails.send({
+    from: FROM,
     to: toEmail,
     subject: l.otpSubject,
     text: l.otpText(name, otp),
@@ -125,8 +108,8 @@ async function sendOtpEmail(toEmail, otp, name, lang = 'en') {
 
 async function sendCaregiverHealthAlert(caregiverEmail, caregiverName, patientName, metric, value, unit, notes, lang = 'en') {
   const l = getLang(lang);
-  await transporter.sendMail({
-    from: `"RambaMedTech" <${process.env.EMAIL_USER}>`,
+  await resend.emails.send({
+    from: FROM,
     to: caregiverEmail,
     subject: l.healthSubject(patientName),
     html: baseHtml(l.healthTagline, `
@@ -150,8 +133,8 @@ async function sendCaregiverMoodAlert(caregiverEmail, caregiverName, patientName
   const bgColor = isBad ? '#fef2f2' : '#fffbeb';
   const emotionLabel = emotion.charAt(0) + emotion.slice(1).toLowerCase();
 
-  await transporter.sendMail({
-    from: `"RambaMedTech" <${process.env.EMAIL_USER}>`,
+  await resend.emails.send({
+    from: FROM,
     to: caregiverEmail,
     subject: l.moodSubject(patientName, emotionLabel),
     html: baseHtml(l.moodTagline, `
@@ -169,8 +152,8 @@ async function sendCaregiverMoodAlert(caregiverEmail, caregiverName, patientName
 
 async function sendPasswordResetEmail(toEmail, name, resetLink, lang = 'en') {
   const l = getLang(lang);
-  await transporter.sendMail({
-    from: `"RambaMedTech" <${process.env.EMAIL_USER}>`,
+  await resend.emails.send({
+    from: FROM,
     to: toEmail,
     subject: l.resetSubject,
     text: l.resetText(name, resetLink),
@@ -186,8 +169,8 @@ async function sendPasswordResetEmail(toEmail, name, resetLink, lang = 'en') {
 }
 
 async function sendCaregiverInviteEmail(caregiverEmail, patientName, code) {
-  await transporter.sendMail({
-    from: `"RambaMedTech" <${process.env.EMAIL_USER}>`,
+  await resend.emails.send({
+    from: FROM,
     to: caregiverEmail,
     subject: `${patientName} has assigned you as their caregiver on RambaMedTech`,
     html: `
