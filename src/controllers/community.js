@@ -1,5 +1,6 @@
 const prisma = require("../lib/prisma");
 const { audit } = require('../lib/audit');
+const { decrypt } = require('../lib/encryption');
 
 // Helper: create a DB notification
 async function notify(userId, title, message) {
@@ -349,8 +350,8 @@ async function getPatientSummary(req, res) {
 
     res.json({
       conditions: conditions.map((c) => c.condition),
-      recentLogs,
-      recentEmotions,
+      recentLogs: recentLogs.map(l => ({ ...l, notes: decrypt(l.notes) })),
+      recentEmotions: recentEmotions.map(e => ({ ...e, notes: decrypt(e.notes) })),
     });
   } catch (err) {
     console.error(err);

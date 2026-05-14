@@ -38,15 +38,19 @@ async function createLog(req, res) {
 
     res.status(201).json({ log: { ...log, notes: decrypt(log.notes) } });
 
-    // Notify caregivers in background
-    prisma.caregiverAccess.findMany({
-      where: { patientId: req.user.id },
-      include: {
-        caregiver: { select: { name: true, email: true, lang: true } },
-        patient: { select: { name: true } },
-      },
-    }).then((accesses) => {
+    // Notify caregivers in background (only if patient consented to sharing vitals)
+    Promise.all([
+      prisma.caregiverAccess.findMany({
+        where: { patientId: req.user.id },
+        include: {
+          caregiver: { select: { name: true, email: true, lang: true } },
+          patient: { select: { name: true } },
+        },
+      }),
+      prisma.patientConsent.findUnique({ where: { patientId: req.user.id } }),
+    ]).then(([accesses, consent]) => {
       if (accesses.length === 0) return;
+      if (consent && consent.vitals === false) return;
       const patientName = accesses[0].patient.name;
       accesses.forEach(({ caregiver }) => {
         sendCaregiverHealthAlert(caregiver.email, caregiver.name, patientName, metric, value, unit, notes, caregiver.lang || 'en')

@@ -28,16 +28,20 @@ async function createCheckIn(req, res) {
 
     res.status(201).json({ checkIn: { ...checkIn, notes: decrypt(checkIn.notes) } });
 
-    // Only alert caregiver if mood is LOW or BAD
+    // Only alert caregiver if mood is LOW or BAD and patient consented
     if (['LOW', 'BAD'].includes(emotion)) {
-      prisma.caregiverAccess.findMany({
-        where: { patientId: req.user.id },
-        include: {
-          caregiver: { select: { name: true, email: true, lang: true } },
-          patient: { select: { name: true } },
-        },
-      }).then((accesses) => {
+      Promise.all([
+        prisma.caregiverAccess.findMany({
+          where: { patientId: req.user.id },
+          include: {
+            caregiver: { select: { name: true, email: true, lang: true } },
+            patient: { select: { name: true } },
+          },
+        }),
+        prisma.patientConsent.findUnique({ where: { patientId: req.user.id } }),
+      ]).then(([accesses, consent]) => {
         if (accesses.length === 0) return;
+        if (consent && consent.mood === false) return;
         const patientName = accesses[0].patient.name;
         accesses.forEach(({ caregiver }) => {
           sendCaregiverMoodAlert(caregiver.email, caregiver.name, patientName, emotion, notes, caregiver.lang || 'en')

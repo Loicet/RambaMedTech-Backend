@@ -57,7 +57,7 @@ async function checkMissedLogs() {
         // Check if we already sent a notification in the last 24hrs to avoid spam
         const recentNotif = await prisma.notification.findFirst({
           where: {
-            userId: caregiver.id ? access.caregiverId : null,
+            userId: access.caregiverId,
             title: 'Missed Health Log',
             createdAt: { gte: twentyFourHoursAgo },
           },

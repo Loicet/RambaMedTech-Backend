@@ -34,6 +34,22 @@ const ARTICLES = [
   { condition: "Sickle Cell", title: "Sickle Cell and Mental Health", body: "Addressing the emotional and psychological impact of living with a chronic painful condition." },
 ];
 
+const GENERAL_ARTICLES = [
+  { category: "General Wellness", title: "Building Habits That Actually Stick", body: "Why most habits fail and the science-backed approach to building routines that last — starting small, staying consistent, and celebrating progress." },
+  { category: "General Wellness", title: "The Power of Drinking More Water", body: "How proper hydration affects your energy, skin, digestion, and mental clarity — and simple ways to drink more throughout the day." },
+  { category: "General Wellness", title: "Sleep: The Most Underrated Health Tool", body: "What happens to your body during sleep, why 7–9 hours matters, and practical tips to improve your sleep quality tonight." },
+  { category: "General Wellness", title: "Movement Doesn't Have to Mean the Gym", body: "How everyday movement — walking, stretching, dancing — contributes to long-term health just as much as structured exercise." },
+  { category: "Women's Health", title: "Understanding Your Menstrual Cycle", body: "A guide to the four phases of the menstrual cycle, what's normal, what's not, and how to track your cycle for better health awareness." },
+  { category: "Women's Health", title: "Nutrition for Women at Every Stage", body: "How nutritional needs change from adolescence through menopause, and which nutrients matter most for women's long-term health." },
+  { category: "Women's Health", title: "Mental Health and Hormones", body: "The connection between hormonal changes and mood, anxiety, and energy — and how to support your mental health through these shifts." },
+  { category: "Family Health", title: "Raising Healthy Eaters", body: "Practical strategies for introducing nutritious foods to children, building positive relationships with food, and making mealtimes enjoyable." },
+  { category: "Family Health", title: "Preventive Health for the Whole Family", body: "Key screenings, vaccinations, and habits every family should prioritize — from infants to grandparents." },
+  { category: "Mental Health", title: "Stress Is Normal — Here's How to Manage It", body: "Understanding the difference between healthy and harmful stress, and evidence-based techniques to manage it before it manages you." },
+  { category: "Mental Health", title: "The Importance of Rest and Recovery", body: "Why rest is not laziness — how physical and mental recovery are essential to performance, mood, and long-term wellbeing." },
+  { category: "Preventive Health", title: "Health Screenings You Shouldn't Skip", body: "A practical guide to routine health checks — blood pressure, blood sugar, cholesterol — and when to get them based on your age and risk." },
+  { category: "Preventive Health", title: "How to Read Your Body's Warning Signs", body: "Common symptoms people ignore and what they might indicate — knowing when to monitor, when to rest, and when to see a doctor." },
+];
+
 async function main() {
   // Seed conditions
   const conditionMap = {};
@@ -61,6 +77,26 @@ async function main() {
     }
   }
   console.log("Seeded", ARTICLES.length, "educational articles");
+
+  // Seed general wellness articles
+  for (const a of GENERAL_ARTICLES) {
+    const exists = await prisma.educationalContent.findFirst({ where: { title: a.title } });
+    if (!exists) {
+      await prisma.educationalContent.create({
+        data: { conditionId: null, category: a.category, title: a.title, body: a.body },
+      });
+    }
+  }
+  console.log('Seeded', GENERAL_ARTICLES.length, 'general wellness articles');
+
+  // Seed general community
+  const generalCommunity = await prisma.community.findFirst({ where: { name: 'Wellness & Lifestyle' } });
+  if (!generalCommunity) {
+    await prisma.community.create({
+      data: { name: 'Wellness & Lifestyle', description: 'A space for everyone building healthier habits and supporting each other.', conditionName: null },
+    });
+  }
+  console.log('Seeded general community');
 
   // Seed default communities — linked to conditions
   const COMMUNITIES = [

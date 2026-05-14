@@ -2,11 +2,13 @@ const prisma = require("../lib/prisma");
 
 async function createContent(req, res) {
   try {
-    const { conditionId, title, body } = req.body;
-    if (!conditionId || !title || !body)
-      return res.status(400).json({ error: "conditionId, title and body are required" });
+    const { conditionId, category, title, body } = req.body;
+    if (!title || !body)
+      return res.status(400).json({ error: "title and body are required" });
 
-    const content = await prisma.educationalContent.create({ data: { conditionId, title, body } });
+    const content = await prisma.educationalContent.create({
+      data: { conditionId: conditionId || null, category: category || null, title, body },
+    });
     res.status(201).json({ content });
   } catch (err) {
     console.error(err);
@@ -16,16 +18,19 @@ async function createContent(req, res) {
 
 async function getContent(req, res) {
   try {
-    const { conditionId } = req.query;
+    const { conditionId, category } = req.query;
+    const where = {};
+    if (conditionId) where.conditionId = conditionId;
+    if (category) where.category = category;
     const content = await prisma.educationalContent.findMany({
-      where: conditionId ? { conditionId } : undefined,
+      where,
       include: { condition: { select: { name: true } } },
-      orderBy: { createdAt: "desc" },
+      orderBy: { createdAt: 'desc' },
     });
     res.json({ content });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Failed to fetch content" });
+    res.status(500).json({ error: 'Failed to fetch content' });
   }
 }
 

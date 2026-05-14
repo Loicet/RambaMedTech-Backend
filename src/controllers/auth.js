@@ -10,35 +10,29 @@ const ROLE_MAP = { patient: "USER", caregiver: "CAREGIVER", admin: "ADMIN" };
 // Step 1: validate, hash password, store OTP — do NOT create user yet
 async function register(req, res) {
   try {
-    const { name, email, password, role, condition, lang } = req.body;
+    const { name, email, password, intent, lang } = req.body;
     if (!name || !email || !password)
       return res.status(400).json({ error: "name, email and password are required" });
 
-    const dbRole = ROLE_MAP[role] || "USER";
+    const dbRole = intent === 'caregiver' ? 'CAREGIVER' : 'USER';
+    const dbLang = lang === 'rw' ? 'rw' : 'en';
 
-    // Run DB check and password hash in parallel to save time
     const [existing, passwordHash] = await Promise.all([
       prisma.user.findUnique({ where: { email } }),
-      bcrypt.hash(password, 8),
+      bcrypt.hash(password, 10),
     ]);
 
     if (existing) return res.status(409).json({ error: "Email already in use" });
 
-    const dbRole = ROLE_MAP[role] || "USER";
-    const dbLang = lang === 'rw' ? 'rw' : 'en';
-    const passwordHash = await bcrypt.hash(password, 10);
     const otp = String(Math.floor(100000 + Math.random() * 900000));
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 min
-
-    const lang = req.body.lang || 'en';
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
     await prisma.otpRequest.upsert({
       where: { email },
-      create: { email, otp, name, password: passwordHash, role: dbRole, condition: condition || null, lang: dbLang, expiresAt },
-      update: { otp, name, password: passwordHash, role: dbRole, condition: condition || null, lang: dbLang, expiresAt },
+      create: { email, otp, name, password: passwordHash, role: dbRole, intent: intent || null, lang: dbLang, expiresAt },
+      update: { otp, name, password: passwordHash, role: dbRole, intent: intent || null, lang: dbLang, expiresAt },
     });
 
-    // Respond immediately — send email in background so user isn't waiting on Gmail
     res.status(200).json({ success: true });
 
     sendOtpEmail(email, otp, name, lang).catch((emailErr) =>
@@ -65,8 +59,8 @@ async function verifyOtp(req, res) {
     if (pending.otp !== otp) return res.status(400).json({ error: "Incorrect code. Please try again." });
 
     const user = await prisma.user.create({
-      data: { name: pending.name, email, passwordHash: pending.password, role: pending.role, lang: pending.lang },
-      select: { id: true, name: true, email: true, role: true, lang: true, createdAt: true },
+      data: { name: pending.name, email, passwordHash: pending.password, role: pending.role, intent: pending.intent || null, lang: pending.lang },
+      select: { id: true, name: true, email: true, role: true, intent: true, lang: true, createdAt: true },
     });
 
     // Assign condition and auto-join matching community
@@ -86,7 +80,7 @@ async function verifyOtp(req, res) {
     await prisma.otpRequest.delete({ where: { email } });
 
     const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "7d" });
-    const roleDisplay = user.role === "USER" ? "patient" : user.role.toLowerCase();
+    const roleDisplay = user.role === "USER" ? (user.intent === 'caregiver' ? 'caregiver' : 'patient') : user.role.toLowerCase();
     res.status(201).json({ token, user: { ...user, role: roleDisplay, lang: user.lang } });
   } catch (err) {
     console.error(err);
@@ -143,8 +137,8 @@ async function login(req, res) {
       { expiresIn: "7d" }
     );
 
-    const roleDisplay = user.role === "USER" ? "patient" : user.role.toLowerCase();
-    res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: roleDisplay, lang: user.lang } });
+    const roleDisplay = user.role === "USER" ? (user.intent === 'caregiver' ? 'caregiver' : 'patient') : user.role.toLowerCase();
+    res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: roleDisplay, intent: user.intent, lang: user.lang } });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Login failed" });
@@ -156,15 +150,15 @@ async function me(req, res) {
     const user = await prisma.user.findUnique({
       where: { id: req.user.id },
       select: {
-        id: true, name: true, email: true, role: true, lang: true, createdAt: true,
+        id: true, name: true, email: true, role: true, intent: true, lang: true, createdAt: true,
         conditions: { include: { condition: { select: { name: true } } } },
       },
     });
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    const roleDisplay = user.role === "USER" ? "patient" : user.role.toLowerCase();
+    const roleDisplay = user.role === "USER" ? (user.intent === 'caregiver' ? 'caregiver' : 'patient') : user.role.toLowerCase();
     const condition = user.conditions[0]?.condition?.name || null;
-    res.json({ user: { ...user, role: roleDisplay, condition, lang: user.lang, conditions: undefined } });
+    res.json({ user: { ...user, role: roleDisplay, intent: user.intent, condition, lang: user.lang, conditions: undefined } });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to fetch user" });
@@ -173,9 +167,10 @@ async function me(req, res) {
 
 async function updateProfile(req, res) {
   try {
-    const { name, birthYear, gender, height, weight } = req.body;
+    const { name, birthYear, gender, height, weight, intent } = req.body;
     const data = {};
     if (name)       data.name      = name;
+    if (intent)     data.intent    = intent;
     if (birthYear)  data.birthYear = parseInt(birthYear);
     if (gender !== undefined) data.gender = gender;
     if (height)     data.height    = parseFloat(height);
@@ -185,15 +180,15 @@ async function updateProfile(req, res) {
       where: { id: req.user.id },
       data,
       select: {
-        id: true, name: true, email: true, role: true,
+        id: true, name: true, email: true, role: true, intent: true,
         birthYear: true, gender: true, height: true, weight: true,
         conditions: { include: { condition: { select: { name: true } } } },
       },
     });
 
-    const roleDisplay = user.role === "USER" ? "patient" : user.role.toLowerCase();
+    const roleDisplay = user.role === "USER" ? (user.intent === 'caregiver' ? 'caregiver' : 'patient') : user.role.toLowerCase();
     const condition = user.conditions[0]?.condition?.name || null;
-    res.json({ user: { ...user, role: roleDisplay, condition, conditions: undefined } });
+    res.json({ user: { ...user, role: roleDisplay, intent: user.intent, condition, conditions: undefined } });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to update profile" });

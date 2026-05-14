@@ -8,13 +8,18 @@ datasource db {
 }
 
 model User {
-  id            String    @id @default(uuid())
-  name          String
-  email         String    @unique
-  passwordHash  String
-  role          Role      @default(USER)
-  lang          String    @default("en")
-  createdAt     DateTime  @default(now())
+  id                String             @id @default(uuid())
+  name              String
+  email             String             @unique
+  passwordHash      String
+  role              Role               @default(USER)
+  intent            String?            // habits | condition | preventive | caregiver
+  lang              String             @default("en")
+  birthYear         Int?
+  gender            String?
+  height            Float?
+  weight            Float?
+  createdAt         DateTime           @default(now())
 
   conditions        UserCondition[]
   healthLogs        HealthLog[]
@@ -23,11 +28,10 @@ model User {
   grantedAccess     CaregiverAccess[]  @relation("PatientAccess")
   memberships       CommunityMember[]
   contentProgress   ContentProgress[]
-  emotionalCheckIns EmotionalCheckIn[]
-  healthLogs        HealthLog[]
   notifications     Notification[]
   consent           PatientConsent?
-  conditions        UserCondition[]
+  careInvites       CareInvite[]
+  reminders         Reminder[]
   pushSubscriptions PushSubscription[]
   auditLogs         AuditLog[]
 }
@@ -138,12 +142,13 @@ model PostComment {
 
 model EducationalContent {
   id          String            @id @default(uuid())
-  conditionId String
+  conditionId String?
+  category    String?           // e.g. General, Women's Health, Family Health, Mental Health
   title       String
   body        String
   createdAt   DateTime          @default(now())
   progress    ContentProgress[]
-  condition   Condition         @relation(fields: [conditionId], references: [id], onDelete: Cascade)
+  condition   Condition?        @relation(fields: [conditionId], references: [id], onDelete: Cascade)
 }
 
 model ContentProgress {
@@ -173,11 +178,11 @@ model OtpRequest {
   name      String
   password  String
   role      Role     @default(USER)
+  intent    String?
   condition String?
   lang      String   @default("en")
   expiresAt DateTime
   createdAt DateTime @default(now())
-  lang      String   @default("en")
 }
 
 model CareInvite {
@@ -208,7 +213,7 @@ model Reminder {
   type      String   @default("general")
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade, map: "Reminder_userId_fkey")
 }
 
 model PushSubscription {
