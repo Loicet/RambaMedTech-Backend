@@ -172,12 +172,16 @@ async function processState(phone, state, data, input, lang) {
 
   // ── ASSIGN CAREGIVER (patient enters caregiver phone) ─────────────────────
   if (state === 'assign_caregiver') {
-    const caregiverPhone = input.startsWith('+') ? input : `+${input}`;
-    const caregiver = await prisma.user.findUnique({ where: { phone: caregiverPhone } });
-    if (!caregiver || caregiver.role !== 'CAREGIVER') {
+    // Normalize: try as-is, with +, and without +
+    const variants = [input, `+${input}`, input.replace(/^\+/, '')];
+    const caregiver = await prisma.user.findFirst({
+      where: { phone: { in: variants }, role: 'CAREGIVER' },
+    });
+    if (!caregiver) {
       await saveSession(phone, 'main_menu', data);
       return con('Caregiver not found with that number.\n\n' + t(lang, 'main_menu'));
     }
+    const caregiverPhone = caregiver.phone;
     // Create a CareInvite record
     const code = Math.random().toString(36).substring(2, 8).toUpperCase();
     await prisma.careInvite.create({
@@ -323,20 +327,17 @@ async function processState(phone, state, data, input, lang) {
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 
 async function showCaregiverInvites(phone, data, lang) {
+  const caregiver = await prisma.user.findUnique({ where: { id: data.userId }, select: { email: true } });
   const invites = await prisma.careInvite.findMany({
-    where: { caregiverEmail: { not: undefined }, status: 'pending' },
+    where: { caregiverEmail: caregiver?.email, status: 'pending' },
     include: { patient: { select: { id: true, name: true } } },
   });
-  // Filter invites for this caregiver by matching their email
-  const caregiver = await prisma.user.findUnique({ where: { id: data.userId }, select: { email: true } });
-  const mine = invites.filter(i => i.caregiverEmail === caregiver?.email);
 
-  if (!mine.length) {
+  if (!invites.length) {
     await saveSession(phone, 'caregiver_menu', data);
     return con(t(lang, 'no_invites') + '\n\n' + t(lang, 'caregiver_menu'));
   }
-  // Show first pending invite
-  const invite = mine[0];
+  const invite = invites[0];
   await saveSession(phone, 'invite_action', { ...data, inviteId: invite.id, inviteName: invite.patient.name });
   return con(t(lang, 'invite_action', invite.patient.name));
 }
