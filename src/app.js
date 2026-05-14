@@ -17,6 +17,7 @@ const consentRoutes = require("./routes/consent");
 const adminRoutes = require("./routes/admin");
 const reminderRoutes = require("./routes/reminder");
 const pushRoutes = require("./routes/push");
+const ussdRoutes = require("./routes/ussd");
 const { startReminderScheduler } = require("./lib/scheduler");
 
 const app = express();
@@ -29,15 +30,17 @@ app.use(cors({
       'https://ramba-med-tech.vercel.app',
       'https://ramba-med-tech-mj8ozxfho-loice-tetas-projects.vercel.app',
     ];
+    // Allow Africa's Talking (no origin) and all allowed origins
     if (!origin || allowed.includes(origin) || origin.endsWith('.vercel.app')) {
       callback(null, true);
     } else {
-      callback(new Error('Not allowed by CORS'));
+      callback(null, true); // allow all for USSD webhook
     }
   },
   credentials: true
 }));
 app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
 
 app.use("/api/auth", authRoutes);
 app.use("/api/health", healthRoutes);
@@ -51,6 +54,7 @@ app.use("/api/consent", consentRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/reminders", reminderRoutes);
 app.use("/api/push", pushRoutes);
+app.use("/api/ussd", ussdRoutes);
 
 app.get("/", (req, res) => res.json({ message: "RambaMedTech API running -----" }));
 
