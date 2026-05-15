@@ -1,7 +1,18 @@
-const { Resend } = require('resend');
+const nodemailer = require('nodemailer');
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-const FROM = process.env.EMAIL_FROM || 'RambaMedTech <onboarding@resend.dev>';
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+});
+
+const FROM = `RambaMedTech <${process.env.EMAIL_USER}>`;
+
+async function sendMail({ to, subject, text, html }) {
+  await transporter.sendMail({ from: FROM, to, subject, text, html });
+}
 
 const i18n = {
   en: {
@@ -16,10 +27,8 @@ const i18n = {
     healthTagline: 'Patient Health Update',
     healthHi: (name) => `Hi <strong>${name}</strong>,`,
     healthBody: (patient) => `Your patient <strong>${patient}</strong> has just logged new health data.`,
-    healthMetric: 'Metric',
-    healthValue: 'Value',
-    healthNotes: 'Notes',
-    healthFooter: (patient) => `Log in to RambaMedTech to view the full details and history.`,
+    healthMetric: 'Metric', healthValue: 'Value', healthNotes: 'Notes',
+    healthFooter: () => `Log in to RambaMedTech to view the full details and history.`,
     healthDisclaimer: (patient) => `You are receiving this because you are a registered caregiver for ${patient}.`,
 
     moodSubject: (name, emotion) => `⚠️ Mood Alert: ${name} is feeling ${emotion}`,
@@ -43,39 +52,35 @@ const i18n = {
     otpTagline: 'Ubuzima bwawe, umuryango wawe',
     otpHi: (name) => `Muraho <strong>${name}</strong>,`,
     otpBody: 'Koresha kode iri hasi kugira ngo ugenzure konti yawe. Irangira mu <strong>minota 10</strong>.',
-    otpIgnore: 'Niba utasabye ibi, urashobora gusiba ubutumwa bw\'ubwo.',
+    otpIgnore: "Niba utasabye ibi, urashobora gusiba ubutumwa bw'ubwo.",
     otpText: (name, otp) => `Muraho ${name},\n\nKode yawe yo kugenzura konti ya RambaMedTech ni: ${otp}\n\nIrangira mu minota 10.\n\nNiba utasabye ibi, siba ubutumwa bw'ubwo.`,
 
     healthSubject: (name) => `Amakuru y'Ubuzima: ${name} yanditse amakuru mashya`,
-    healthTagline: 'Amakuru y\'Ubuzima bw\'Umurwayi',
+    healthTagline: "Amakuru y'Ubuzima bw'Umurwayi",
     healthHi: (name) => `Muraho <strong>${name}</strong>,`,
     healthBody: (patient) => `Umurwayi wawe <strong>${patient}</strong> yanditse amakuru mashya y'ubuzima.`,
-    healthMetric: 'Igipimo',
-    healthValue: 'Agaciro',
-    healthNotes: 'Ibisobanuro',
-    healthFooter: (patient) => `Injira kuri RambaMedTech kureba amakuru yose n'amateka.`,
+    healthMetric: 'Igipimo', healthValue: 'Agaciro', healthNotes: 'Ibisobanuro',
+    healthFooter: () => `Injira kuri RambaMedTech kureba amakuru yose n'amateka.`,
     healthDisclaimer: (patient) => `Urabona ubutumwa bw'ubwo kuko uri umurezi wa ${patient}.`,
 
     moodSubject: (name, emotion) => `⚠️ Imyumvire: ${name} yiyumva ${emotion}`,
-    moodTagline: 'Imenyesha ry\'Ubuzima bw\'Amarangamutima',
+    moodTagline: "Imenyesha ry'Ubuzima bw'Amarangamutima",
     moodHi: (name) => `Muraho <strong>${name}</strong>,`,
-    moodBody: (patient, emotion) => `Umurwayi wawe <strong>${patient}</strong> arangije genzura ubuzima bw'amarangamutima kandi yavuze ko yiyumva <strong>${emotion}</strong>. Ashobora gukeneya inkunga yawe.`,
+    moodBody: (patient, emotion) => `Umurwayi wawe <strong>${patient}</strong> arangije genzura ubuzima bw'amarangamutima kandi yavuze ko yiyumva <strong>${emotion}</strong>.`,
     moodFooter: (patient) => `Tekereza gutumanahana na ${patient} kugira ngo umurebe.`,
     moodDisclaimer: (patient) => `Urabona ubutumwa bw'ubwo kuko uri umurezi wa ${patient}.`,
 
-    resetSubject: 'Hindura ijambo ry\'ibanga rya RambaMedTech',
-    resetTagline: 'Gusaba Guhindura Ijambo ry\'Ibanga',
+    resetSubject: "Hindura ijambo ry'ibanga rya RambaMedTech",
+    resetTagline: "Gusaba Guhindura Ijambo ry'Ibanga",
     resetHi: (name) => `Muraho <strong>${name}</strong>,`,
-    resetBody: 'Kanda buto iri hasi kugira ngo uhindure ijambo ry\'ibanga. Ihuza irangira mu <strong>minota 15</strong>.',
-    resetBtn: 'Hindura Ijambo ry\'Ibanga',
-    resetIgnore: 'Niba utasabye ibi, urashobora gusiba ubutumwa bw\'ubwo. Ijambo ry\'ibanga ntizahinduka.',
+    resetBody: "Kanda buto iri hasi kugira ngo uhindure ijambo ry'ibanga. Ihuza irangira mu <strong>minota 15</strong>.",
+    resetBtn: "Hindura Ijambo ry'Ibanga",
+    resetIgnore: "Niba utasabye ibi, urashobora gusiba ubutumwa bw'ubwo. Ijambo ry'ibanga ntizahinduka.",
     resetText: (name, link) => `Muraho ${name},\n\nKanda ihuza iri hasi kugira ngo uhindure ijambo ry'ibanga (irangira mu minota 15):\n\n${link}\n\nNiba utasabye ibi, siba ubutumwa bw'ubwo.`,
   },
 };
 
-function getLang(lang) {
-  return i18n[lang] || i18n.en;
-}
+function getLang(lang) { return i18n[lang] || i18n.en; }
 
 function baseHtml(tagline, content) {
   return `
@@ -90,8 +95,7 @@ function baseHtml(tagline, content) {
 
 async function sendOtpEmail(toEmail, otp, name, lang = 'en') {
   const l = getLang(lang);
-  await resend.emails.send({
-    from: FROM,
+  await sendMail({
     to: toEmail,
     subject: l.otpSubject,
     text: l.otpText(name, otp),
@@ -108,8 +112,7 @@ async function sendOtpEmail(toEmail, otp, name, lang = 'en') {
 
 async function sendCaregiverHealthAlert(caregiverEmail, caregiverName, patientName, metric, value, unit, notes, lang = 'en') {
   const l = getLang(lang);
-  await resend.emails.send({
-    from: FROM,
+  await sendMail({
     to: caregiverEmail,
     subject: l.healthSubject(patientName),
     html: baseHtml(l.healthTagline, `
@@ -132,9 +135,7 @@ async function sendCaregiverMoodAlert(caregiverEmail, caregiverName, patientName
   const borderColor = isBad ? '#fca5a5' : '#fcd34d';
   const bgColor = isBad ? '#fef2f2' : '#fffbeb';
   const emotionLabel = emotion.charAt(0) + emotion.slice(1).toLowerCase();
-
-  await resend.emails.send({
-    from: FROM,
+  await sendMail({
     to: caregiverEmail,
     subject: l.moodSubject(patientName, emotionLabel),
     html: baseHtml(l.moodTagline, `
@@ -152,8 +153,7 @@ async function sendCaregiverMoodAlert(caregiverEmail, caregiverName, patientName
 
 async function sendPasswordResetEmail(toEmail, name, resetLink, lang = 'en') {
   const l = getLang(lang);
-  await resend.emails.send({
-    from: FROM,
+  await sendMail({
     to: toEmail,
     subject: l.resetSubject,
     text: l.resetText(name, resetLink),
@@ -169,8 +169,7 @@ async function sendPasswordResetEmail(toEmail, name, resetLink, lang = 'en') {
 }
 
 async function sendCaregiverInviteEmail(caregiverEmail, patientName, code) {
-  await resend.emails.send({
-    from: FROM,
+  await sendMail({
     to: caregiverEmail,
     subject: `${patientName} has assigned you as their caregiver on RambaMedTech`,
     html: `
